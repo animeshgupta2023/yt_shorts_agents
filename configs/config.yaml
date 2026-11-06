@@ -1,0 +1,31 @@
+project:
+  workspace_dir: "./workspace"
+  models_dir: "./models"
+
+llm:
+  # Primary: "gemini" | Fallback/Local: "local_gguf"
+  provider: "gemini"
+  gemini:
+    model: "gemini-3.5-flash-lite" # High TPM ceiling on free tier; use gemini-3.8-flash for large batches
+    temperature: 0.2
+  local_gguf:
+    model_path: "./models/Qwen3.5-4B-Q4_K_M.gguf"
+    n_ctx: 4096
+    n_gpu_layers: -1 # Offload 100% of layers to RTX 4050
+
+whisper:
+  model_size: "medium" # "small" or "medium"
+  device: "cuda"
+  compute_type: "float16" # Use "int8" if VRAM is tight
+
+reframe:
+  target_aspect_ratio: [9, 16]
+  scene_threshold: 27.0
+  deadband_pixels: 25
+  ema_alpha: 0.15
+
+subtitles:
+  font_name: "Montserrat Black"
+  font_size: 24
+  words_per_group: 3
+  bottom_margin_percent: 0.25 # Keep clear of YouTube overlay UI
