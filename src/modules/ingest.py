@@ -66,6 +66,13 @@ def ingest_video(url: str, base_workspace: Path) -> IngestResult:
         "overwrites": True,
         "quiet": True,
         "no_warnings": True,
+        # Resilience & Throttling Guards
+        "socket_timeout": 15,                     # Break out of hangs if no data arrives in 15s
+        "retries": 10,                            # Retry transient drops automatically
+        "fragment_retries": 10,
+        "buffersize": 1024 * 1024,                # 1 MB buffer
+        "http_chunk_size": 10485760,              # 10 MB chunking to bypass standard stream throttling
+        "concurrent_fragment_downloads": 4,      # Download chunks in parallel
     }
 
     console.print(f"[stage]Ingesting YouTube Video:[/stage] [info]{video_id}[/info]")
