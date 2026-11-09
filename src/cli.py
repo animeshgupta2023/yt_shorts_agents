@@ -11,6 +11,7 @@ from src.config import load_config
 from src.modules.miner import mine_highlights
 from src.modules.ingest import extract_video_id, ingest_video
 from src.modules.transcribe import transcribe_audio
+from src.modules.reframer import extract_raw_clip, generate_crop_trajectory
 from src.utils.logger import console
 
 app = typer.Typer(
@@ -146,6 +147,64 @@ def mine(
         )
 
     console.print(table)
+
+
+@app.command()
+def reframe(
+    target: str = typer.Argument(..., help="Video ID or URL with mined clips"),
+    clip_index: int = typer.Option(0, help="Index of clip candidate in clips.json to process (0 = top clip)"),
+):
+    """Stage 4: Extract subclip, detect shot cuts, track subject, and build 9:16 crop path."""
+    config = load_config()
+    video_id = extract_video_id(target) if ("youtube.com" in target or "youtu.be" in target) else target
+    workspace_dir = config.workspace_dir / video_id
+
+    raw_video = workspace_dir / "raw.mp4"
+    clips_path = workspace_dir / "clips.json"
+
+    if not raw_video.exists():
+        console.print(f"[error]Source video raw.mp4 not found in {workspace_dir}[/error]")
+        raise typer.Exit(code=1)
+    if not clips_path.exists():
+        console.print(f"[error]clips.json not found. Run 'mine' first.[/error]")
+        raise typer.Exit(code=1)
+
+    with open(clips_path, "r", encoding="utf-8") as f:
+        clips_data = json.load(f)
+
+    available_clips = clips_data.get("clips", [])
+    if not available_clips or clip_index >= len(available_clips):
+        console.print(f"[error]Clip index {clip_index} not found in clips.json[/error]")
+        raise typer.Exit(code=1)
+    
+    selected_clip = available_clips[clip_index]
+    start_t = float(selected_clip["start_time"])
+    dur = float(selected_clip["duration"])
+
+    clips_output_dir = workspace_dir / "clips"
+    clips_output_dir.mkdir(parents=True, exist_ok=True)
+
+    subclip_path = clips_output_dir / f"clip_{clip_index:02d}_raw.mp4"
+    trajectory_path = clips_output_dir / f"clip_{clip_index:02d}_trajectory.json"
+
+    # Step 1: Extract trimmed subclip
+    extract_raw_clip(
+        source_video=raw_video,
+        output_clip_path=subclip_path,
+        start_time=start_t,
+        duration=dur,
+    )
+
+    # Step 2: Track subject and build smooth crop path
+    generate_crop_trajectory(
+        clip_video_path=subclip_path,
+        output_trajectory_path=trajectory_path,
+        device="cuda",
+    )
+
+    console.print(f"[stage]=== Reframing Complete ===[/stage]")
+    console.print(f"Subclip: {subclip_path}")
+    console.print(f"Crop Path: {trajectory_path}")
 
 
 if __name__ == "__main__":

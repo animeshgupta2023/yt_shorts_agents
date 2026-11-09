@@ -55,8 +55,13 @@ def ingest_video(url: str, base_workspace: Path) -> IngestResult:
     metadata_path = target_dir / "metadata.json"
 
     # Configure yt-dlp: cap at 1080p, prefer standard H.264 / AAC MP4 container
+    # Prioritize H.264 (avc1) video up to 1080p, fall back to any format if unavailable
     ydl_opts: Dict[str, Any] = {
-        "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
+        "format": (
+            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/"
+            "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
+            "best[height<=1080][ext=mp4]/best"
+        ),
         "outtmpl": str(raw_video_path),
         "overwrites": True,
         "quiet": True,
