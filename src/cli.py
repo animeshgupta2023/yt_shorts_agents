@@ -12,6 +12,7 @@ from src.modules.miner import mine_highlights
 from src.modules.ingest import extract_video_id, ingest_video
 from src.modules.transcribe import transcribe_audio
 from src.modules.reframer import extract_raw_clip, generate_crop_trajectory
+from src.modules.subtitler import generate_clip_subtitles
 from src.utils.logger import console
 
 app = typer.Typer(
@@ -206,6 +207,31 @@ def reframe(
     console.print(f"Subclip: {subclip_path}")
     console.print(f"Crop Path: {trajectory_path}")
 
+@app.command()
+def subtitles(
+    target: str = typer.Argument(..., help="Video ID or URL with transcribed words"),
+    clip_index: int = typer.Option(0, help="Index of clip candidate to subtitle"),
+    words_per_group: int = typer.Option(3, help="Words shown simultaneously per line"),
+):
+    """Stage 5: Generate dynamic karaoke-style ASS subtitles for a clip."""
+    config = load_config()
+    video_id = extract_video_id(target) if ("youtube.com" in target or "youtu.be" in target) else target
+    workspace_dir = config.workspace_dir / video_id
+
+    words_path = workspace_dir / "aligned_words.json"
+    clips_path = workspace_dir / "clips.json"
+    output_ass = workspace_dir / "clips" / f"clip_{clip_index:02d}_subtitles.ass"
+
+    generate_clip_subtitles(
+        aligned_words_path=words_path,
+        clips_json_path=clips_path,
+        output_ass_path=output_ass,
+        clip_index=clip_index,
+        words_per_group=words_per_group,
+    )
+
+    console.print(f"[stage]=== Subtitles Complete ===[/stage]")
+    console.print(f"Subtitle File: {output_ass}")
 
 if __name__ == "__main__":
     app()
