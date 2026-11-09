@@ -10,7 +10,7 @@ llm:
     temperature: 0.2
   local_gguf:
     model_path: "./models/Qwen3.5-4B-Q4_K_M.gguf"
-    n_ctx: 4096
+    n_ctx: 8192
     n_gpu_layers: -1 # Offload 100% of layers to RTX 4050
 
 whisper:
