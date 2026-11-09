@@ -7,6 +7,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import load_config
+from src.modules.ingest import ingest_video
 from src.utils.logger import console
 
 app = typer.Typer(
@@ -43,17 +44,15 @@ def test_env():
 
 
 @app.command()
-def run(
-    url: str = typer.Argument(..., help="YouTube video URL"),
-    max_shorts: int = typer.Option(3, help="Max clips to extract"),
-    provider: Optional[str] = typer.Option(
-        None, help="Override LLM provider (gemini | local_gguf)"
-    ),
+def ingest(
+    url: str = typer.Argument(..., help="YouTube video URL to download and process")
 ):
-    """Full execution pipeline."""
-    console.print(f"[stage]Starting pipeline for:[/stage] {url}")
-    # Will coordinate stages sequentially
-
+    """Stage 1: Download YouTube video, fetch metadata, and demux 16kHz WAV."""
+    config = load_config()
+    result = ingest_video(url, config.workspace_dir)
+    console.print(f"[stage]=== Ingestion Complete ===[/stage]")
+    console.print(f"Directory: {result.workspace_dir}")
+    console.print(f"Video: {result.raw_video_path.name} | Audio: {result.audio_wav_path.name}")
 
 if __name__ == "__main__":
     app()
