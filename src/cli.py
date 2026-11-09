@@ -7,7 +7,8 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import load_config
-from src.modules.ingest import ingest_video
+from src.modules.ingest import extract_video_id, ingest_video
+from src.modules.transcribe import transcribe_audio
 from src.utils.logger import console
 
 app = typer.Typer(
@@ -53,6 +54,47 @@ def ingest(
     console.print(f"[stage]=== Ingestion Complete ===[/stage]")
     console.print(f"Directory: {result.workspace_dir}")
     console.print(f"Video: {result.raw_video_path.name} | Audio: {result.audio_wav_path.name}")
+
+@app.command()
+def transcribe(
+    target: str = typer.Argument(
+        ..., help="Video ID or YouTube URL that was already ingested"
+    ),
+    model_size: Optional[str] = typer.Option(
+        None, help="Whisper model size: tiny, base, small, medium, large-v3"
+    ),
+):
+    """Stage 2: Transcribe audio and generate word-level timestamps."""
+    config = load_config()
+
+    # Determine video_id from URL or raw ID
+    if "youtube.com" in target or "youtu.be" in target:
+        video_id = extract_video_id(target)
+    else:
+        video_id = target
+
+    workspace_dir = config.workspace_dir / video_id
+    audio_path = workspace_dir / "audio.wav"
+
+    if not audio_path.exists():
+        console.print(
+            f"[error]Audio file does not exist at {audio_path}. Run 'ingest' first.[/error]"
+        )
+        raise typer.Exit(code=1)
+
+    chosen_model = model_size or config.whisper.model_size
+
+    res = transcribe_audio(
+        audio_path=audio_path,
+        workspace_dir=workspace_dir,
+        model_size=chosen_model,
+        device=config.whisper.device,
+        compute_type=config.whisper.compute_type,
+    )
+
+    console.print(f"[stage]=== Transcription Complete ===[/stage]")
+    console.print(f"Transcript JSON: {res.transcript_path}")
+    console.print(f"Aligned Words JSON: {res.aligned_words_path}")
 
 if __name__ == "__main__":
     app()
