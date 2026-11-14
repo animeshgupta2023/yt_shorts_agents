@@ -52,11 +52,11 @@ def test_env():
 
 @app.command()
 def ingest(
-    url: str = typer.Argument(..., help="YouTube video URL to download and process")
+    url: str = typer.Argument(..., help="YouTube video URL to download and process"),
 ):
     """Stage 1: Download YouTube video, fetch metadata, and demux 16kHz WAV."""
     config = load_config()
-    result = ingest_video(url, config.workspace_dir)
+    result = ingest_video(url, config.project.workspace_dir)
     console.print(f"[stage]=== Ingestion Complete ===[/stage]")
     console.print(f"Directory: {result.workspace_dir}")
     console.print(f"Video: {result.raw_video_path.name} | Audio: {result.audio_wav_path.name}")
@@ -79,7 +79,7 @@ def transcribe(
     else:
         video_id = target
 
-    workspace_dir = config.workspace_dir / video_id
+    workspace_dir = config.project.workspace_dir / video_id
     audio_path = workspace_dir / "audio.wav"
 
     if not audio_path.exists():
@@ -117,7 +117,7 @@ def mine(
         if ("youtube.com" in target or "youtu.be" in target)
         else target
     )
-    workspace_dir = config.workspace_dir / video_id
+    workspace_dir = config.project.workspace_dir / video_id
 
     clips_path = mine_highlights(
         workspace_dir=workspace_dir,
@@ -158,7 +158,7 @@ def reframe(
     """Stage 4: Extract subclip, detect shot cuts, track subject, and build 9:16 crop path."""
     config = load_config()
     video_id = extract_video_id(target) if ("youtube.com" in target or "youtu.be" in target) else target
-    workspace_dir = config.workspace_dir / video_id
+    workspace_dir = config.project.workspace_dir / video_id
 
     raw_video = workspace_dir / "raw.mp4"
     clips_path = workspace_dir / "clips.json"
@@ -216,7 +216,7 @@ def subtitles(
     """Stage 5: Generate dynamic karaoke-style ASS subtitles for a clip."""
     config = load_config()
     video_id = extract_video_id(target) if ("youtube.com" in target or "youtu.be" in target) else target
-    workspace_dir = config.workspace_dir / video_id
+    workspace_dir = config.project.workspace_dir / video_id
 
     words_path = workspace_dir / "aligned_words.json"
     clips_path = workspace_dir / "clips.json"
@@ -242,7 +242,7 @@ def render(
     """Stage 6: Render final vertical Short with dynamic crop, subtitles, and audio normalization."""
     config = load_config()
     video_id = extract_video_id(target) if ("youtube.com" in target or "youtu.be" in target) else target
-    workspace_dir = config.workspace_dir / video_id
+    workspace_dir = config.project.workspace_dir / video_id
 
     clip_dir = workspace_dir / "clips"
     out_dir = workspace_dir / "out"
@@ -273,9 +273,8 @@ def run(
     console.print(f"[stage]Starting YouTube Shorts Agent DAG for:[/stage] {url}")
 
     # Stage 1: Ingest
-    ingest_res = ingest_video(url, config.workspace_dir)
+    ingest_res = ingest_video(url, config.project.workspace_dir)
     workspace_dir = ingest_res.workspace_dir
-    video_id = ingest_res.video_id
 
     # Stage 2: Transcribe
     chosen_whisper = whisper_size or config.whisper.model_size

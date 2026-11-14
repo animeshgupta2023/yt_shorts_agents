@@ -9,3 +9,4 @@ google-genai>=0.1.0
 opencv-python-headless>=4.9.0
 scenedetect[opencv]>=0.6.3
 ultralytics>=8.2.0
+secretstorage>=3.3.0

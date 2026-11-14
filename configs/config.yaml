@@ -6,7 +6,7 @@ llm:
   # Primary: "gemini" | Fallback/Local: "local_gguf"
   provider: "gemini"
   gemini:
-    model: "gemini-3.5-flash-lite" # High TPM ceiling on free tier; use gemini-3.8-flash for large batches
+    model: "gemini-4-hydrogen" # High TPM ceiling on free tier; use gemini-3.8-flash for large batches
     temperature: 0.2
   local_gguf:
     model_path: "./models/Qwen3.5-4B-Q4_K_M.gguf"

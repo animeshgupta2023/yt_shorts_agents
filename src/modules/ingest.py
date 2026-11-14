@@ -1,13 +1,11 @@
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 from pydantic import BaseModel
 import yt_dlp
-
 from src.utils.logger import console
 from src.utils.shell import run_command
-
 
 class IngestResult(BaseModel):
     video_id: str
@@ -44,7 +42,9 @@ def demux_audio(raw_video_path: Path, output_wav_path: Path) -> Path:
     return output_wav_path
 
 
-def ingest_video(url: str, base_workspace: Path) -> IngestResult:
+def ingest_video(
+    url: str, base_workspace: Path
+) -> IngestResult:
     """Download video and metadata, then demux normalized audio."""
     video_id = extract_video_id(url)
     target_dir = base_workspace / video_id
@@ -73,6 +73,7 @@ def ingest_video(url: str, base_workspace: Path) -> IngestResult:
         "buffersize": 1024 * 1024,                # 1 MB buffer
         "http_chunk_size": 10485760,              # 10 MB chunking to bypass standard stream throttling
         "concurrent_fragment_downloads": 4,      # Download chunks in parallel
+        "cookiesfrombrowser": ("chrome",),
     }
 
     console.print(f"[stage]Ingesting YouTube Video:[/stage] [info]{video_id}[/info]")

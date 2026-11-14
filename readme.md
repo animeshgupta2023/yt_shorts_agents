@@ -94,12 +94,26 @@ python src/cli.py run "https://www.youtube.com/watch?v=VIDEO_ID" \
   --whisper-size small
 ```
 
+If yt-dlp reports that YouTube requires sign-in, pass cookies from a browser
+where you are signed in (for example, `chrome`, `firefox`, or `edge`):
+
+```bash
+python src/cli.py run "https://www.youtube.com/watch?v=VIDEO_ID" \
+  --cookies-from-browser chrome
+```
+
+The same option is available on the standalone `ingest` command. Cookies are
+sensitive authentication data; keep them local and do not share exported
+cookie files.
+
 Options:
 
 - `--max-shorts`: maximum number of candidates to render. Defaults to `2`.
 - `--provider`: `gemini` or `local_gguf`; if omitted, the configured provider
   is used. Gemini failures or a missing key trigger a local-model fallback.
 - `--whisper-size`: override the configured Whisper model size for this run.
+- `--cookies-from-browser`: browser name to use for YouTube authentication if
+  yt-dlp requires sign-in.
 
 The selected candidates are processed one at a time through reframing,
 subtitling, and rendering. At the end, the CLI prints a table with each output's
