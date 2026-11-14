@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict
 from pydantic import BaseModel
 import yt_dlp
+from src.config import IngestConfig
 from src.utils.logger import console
 from src.utils.shell import run_command
 
@@ -25,7 +26,7 @@ def extract_video_id(url: str) -> str:
         raise ValueError(f"Could not parse valid YouTube video ID from: {url}")
     return match.group(1)
 
-
+# we get the .wav file for whisper model to work properly(as it works on 16KHz mono audio)
 def demux_audio(raw_video_path: Path, output_wav_path: Path) -> Path:
     """Demux video into 16kHz mono PCM 16-bit WAV for Whisper acoustic models."""
     cmd = [
@@ -43,9 +44,11 @@ def demux_audio(raw_video_path: Path, output_wav_path: Path) -> Path:
 
 
 def ingest_video(
-    url: str, base_workspace: Path
+    url: str, base_workspace: Path, ingest_config: IngestConfig | None = None
 ) -> IngestResult:
     """Download video and metadata, then demux normalized audio."""
+    cfg = ingest_config or IngestConfig()
+    h = cfg.max_height
     video_id = extract_video_id(url)
     target_dir = base_workspace / video_id
     target_dir.mkdir(parents=True, exist_ok=True)
@@ -58,23 +61,30 @@ def ingest_video(
     # Prioritize H.264 (avc1) video up to 1080p, fall back to any format if unavailable
     ydl_opts: Dict[str, Any] = {
         "format": (
-            "bestvideo[height<=1080][vcodec^=avc1]+bestaudio[ext=m4a]/"
-            "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/"
-            "best[height<=1080][ext=mp4]/best"
+            f"bestvideo[height<={h}][vcodec^=avc1]+bestaudio[ext=m4a]/"
+            f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/"
+            f"bestvideo[height<={h}]+bestaudio/"
+            f"best[height<={h}]/best"
         ),
+        "merge_output_format": "mp4",
         "outtmpl": str(raw_video_path),
         "overwrites": True,
         "quiet": True,
         "no_warnings": True,
-        # Resilience & Throttling Guards
-        "socket_timeout": 15,                     # Break out of hangs if no data arrives in 15s
-        "retries": 10,                            # Retry transient drops automatically
+        "extractor_args": {
+            "youtube": {
+                "player_client": cfg.player_clients,
+            }
+        },
+        "socket_timeout": 15,
+        "retries": 10,
         "fragment_retries": 10,
-        "buffersize": 1024 * 1024,                # 1 MB buffer
-        "http_chunk_size": 10485760,              # 10 MB chunking to bypass standard stream throttling
-        "concurrent_fragment_downloads": 4,      # Download chunks in parallel
-        "cookiesfrombrowser": ("chrome",),
+        "buffersize": 1024 * 1024,
+        "concurrent_fragment_downloads": 4,
     }
+
+    if cfg.cookies_from_browser:
+        ydl_opts["cookiesfrombrowser"] = (cfg.cookies_from_browser,)
 
     console.print(f"[stage]Ingesting YouTube Video:[/stage] [info]{video_id}[/info]")
 

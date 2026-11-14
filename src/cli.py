@@ -56,7 +56,7 @@ def ingest(
 ):
     """Stage 1: Download YouTube video, fetch metadata, and demux 16kHz WAV."""
     config = load_config()
-    result = ingest_video(url, config.project.workspace_dir)
+    result = ingest_video(url, config.project.workspace_dir, config.ingest)
     console.print(f"[stage]=== Ingestion Complete ===[/stage]")
     console.print(f"Directory: {result.workspace_dir}")
     console.print(f"Video: {result.raw_video_path.name} | Audio: {result.audio_wav_path.name}")
@@ -273,7 +273,7 @@ def run(
     console.print(f"[stage]Starting YouTube Shorts Agent DAG for:[/stage] {url}")
 
     # Stage 1: Ingest
-    ingest_res = ingest_video(url, config.project.workspace_dir)
+    ingest_res = ingest_video(url, config.project.workspace_dir, config.ingest)
     workspace_dir = ingest_res.workspace_dir
 
     # Stage 2: Transcribe

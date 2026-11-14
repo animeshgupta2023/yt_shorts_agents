@@ -46,13 +46,18 @@ class SubtitleConfig(BaseModel):
     words_per_group: int = 3
     bottom_margin_percent: float = 0.25
 
+class IngestConfig(BaseModel):
+    max_height: int = 1080
+    cookies_from_browser: str | None = "chrome"
+    player_clients: list[str] = Field(default_factory=lambda: ["tv", "web_safari", "web"])
+
 class PipelineConfig(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
+    ingest: IngestConfig = Field(default_factory=IngestConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     whisper: WhisperConfig = Field(default_factory=WhisperConfig)
-    reframe: ReframeConfig = Field(default_factory=ReframeConfig)      
-    subtitles: SubtitleConfig = Field(default_factory=SubtitleConfig) 
-
+    reframe: ReframeConfig = Field(default_factory=ReframeConfig)
+    subtitles: SubtitleConfig = Field(default_factory=SubtitleConfig)
 
 def load_config(config_path: str = "configs/config.yaml") -> PipelineConfig:
     p = Path(config_path)

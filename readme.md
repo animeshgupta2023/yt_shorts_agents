@@ -42,9 +42,10 @@ still under development: see [Current limitations](#current-limitations).
 - NVIDIA NVENC support is used by default for final encoding. The standalone
   `render` command can be told to use CPU encoding instead.
 
-The Python requirements file does not currently list `llama-cpp-python`,
-PyTorch, or FFmpeg itself. Install/configure those separately as appropriate
-for your system and GPU.
+The Python requirements file includes the Python packages used by the project,
+including PyTorch and `llama-cpp-python`. FFmpeg is an external system
+dependency and must be installed separately. PyTorch and `llama-cpp-python`
+may need platform-specific installation options to enable CUDA acceleration.
 
 ## Setup
 
