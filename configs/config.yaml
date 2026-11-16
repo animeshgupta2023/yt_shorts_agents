@@ -30,7 +30,7 @@ subtitles:
   words_per_group: 3
   bottom_margin_percent: 0.25 # Keep clear of YouTube overlay UI
 
-class IngestConfig(BaseModel):
-    max_height: int = 1080
-    cookies_from_browser: str | None = "chrome"
-    player_clients: list[str] = ["tv", "web_safari", "web"]
+ingest:
+  max_height: 1080
+  cookies_from_browser: null   # see P1-4; opt-in, not default
+  player_clients: ["tv", "web_safari", "web"]
