@@ -38,7 +38,7 @@ def transcribe_audio(
     audio_path: Path,
     workspace_dir: Path,
     model_size: str = "medium",
-    device: str = "cuda",
+    device: str = "cuda", 
     compute_type: str = "float16",
 ) -> TranscriptionResult:
     """
@@ -70,8 +70,8 @@ def transcribe_audio(
         str(audio_path),
         beam_size=5,
         word_timestamps=True,
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500),
+        vad_filter=True, # adds a Silero VAD filter(small NN) to remove silent gaps
+        vad_parameters=dict(min_silence_duration_ms=500), # minimum silence duration to consider a gap (in milliseconds)
     )
 
     console.print(

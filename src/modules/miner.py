@@ -11,21 +11,33 @@ from src.utils.logger import console
 
 
 class ClipCandidate(BaseModel):
-    start_time: float = Field(..., description="Start timestamp in seconds")
-    end_time: float = Field(..., description="End timestamp in seconds")
+    topic: str = Field(..., description="Short 1-3 word subject tag")
+    value_proposition: str = Field(
+        ..., description="What specific insight, skill, or mental model the viewer gains from this clip"
+    )
+    reasoning: str = Field(
+        ..., description="How the clip progresses from premise to mechanism to takeaway"
+    )
+    hook: str = Field(..., description="Exact verbatim opening sentence in the first 3-5 seconds")
+    banner_text: str = Field(
+        ..., description="Punchy 4-7 word top-screen overlay framing the takeaway (no clickbait)"
+    )
+    title: str = Field(..., description="Clear, high-signal YouTube Shorts title under 60 characters")
+    visual_cues: List[str] = Field(
+        default_factory=list,
+        description="2-3 concrete concepts or objects mentioned in the clip suitable for B-roll/chart overlays",
+    )
+    start_time: float = Field(..., description="Exact start timestamp in seconds matching the opening hook")
+    end_time: float = Field(..., description="Exact end timestamp in seconds right after the takeaway")
     duration: float = Field(..., description="Duration in seconds (end_time - start_time)")
-    hook: str = Field(..., description="The hook sentence in the first 3-5 seconds")
-    title: str = Field(..., description="Click-worthy vertical video title")
-    topic: str = Field(..., description="Short 1-3 word topic tag")
-    score: float = Field(..., description="Virality and retention score from 1.0 to 10.0")
-    reasoning: str = Field(..., description="Why this clip works as a standalone short")
+    score: float = Field(..., description="Value density + retention score from 1.0 to 10.0")
 
 
 class ClipExtraction(BaseModel):
     clips: List[ClipCandidate]
 
 
-def format_transcript_with_timestamps(segments: List[dict]) -> str:
+def format_transcript_with_timestamps(segments: List[dict]) -> str: 
     """Format segments into compact timestamped lines: [MM:SS] text."""
     lines = []
     for s in segments:
@@ -63,6 +75,9 @@ def snap_to_word_boundaries(clips: List[ClipCandidate], words_path: Path) -> Lis
                 end_time=round(best_end, 2),
                 duration=round(best_end - best_start, 2),
                 hook=clip.hook,
+                value_proposition=clip.value_proposition,
+                banner_text=clip.banner_text,
+                visual_cues=clip.visual_cues,
                 title=clip.title,
                 topic=clip.topic,
                 score=clip.score,
@@ -76,26 +91,40 @@ def mine_with_gemini(
     transcript_text: str,
     video_title: str,
     api_key: str,
-    model_name: str = "gemini-3.5-flash-lite",
+    model_name: str = "gemini-4-hydrogen",
     max_clips: int = 3,
+    temperature: float = 0.2
 ) -> ClipExtraction:
-    """Extract viral clips using Google GenAI SDK with structured Pydantic output."""
+    """Extract high-value, standalone Shorts using structured Pydantic output."""
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key) #
+    client = genai.Client(api_key=api_key)
 
-    prompt = f"""You are a world-class viral short-form video editor for YouTube Shorts, Instagram Reels, and TikTok.
-Analyze the following timestamped video transcript and select the top {max_clips} best segments to cut into standalone viral Shorts.
+    system_instruction = (
+        "You are an expert educational and editorial producer for short-form video (YouTube Shorts, Reels). "
+        "Your job is to extract self-contained segments with high signal-to-noise ratio—clips that teach a "
+        "clear concept, break down a framework, or reveal a non-obvious insight without fluff."
+    )
 
-Video Title: {video_title}
+    context_blocks = [f"Video Title: {video_title}"]
+    metadata_context = "\n\n".join(context_blocks)
 
-### Selection Criteria:
-1. **The Hook (First 3-5 seconds):** Must grab attention instantly (a provocative question, controversy, surprising statement, or high-stakes premise).
-2. **Standalone Story Arc:** The clip MUST make complete sense on its own. It needs a clear premise, elaboration, and satisfying punchline/conclusion.
-3. **Pacing & Duration:** Strict duration between 25 and 60 seconds.
-4. **No Filler:** Do NOT select sponsor messages, channel intros, "like and subscribe" outros, or rambling filler.
-5. **Exact Timestamps:** Use the exact second marks provided in the transcript for start_time and end_time.
+    prompt = f"""Analyze the timestamped transcript below and extract the top {max_clips} distinct, high-value standalone Shorts.
+
+{metadata_context}
+
+### Content Quality & Selection Criteria:
+1. **High Signal, Zero Fluff:** Prioritize segments containing concrete frameworks, step-by-step explanations, root-cause reasoning, or memorable analogies. Reject empty banter, vague platitudes, and meandering stories without a clear point.
+2. **Value-Driven Hook (0-5s):** `start_time` MUST begin on a sentence that immediately frames a specific problem, counterintuitive truth, or clear promise—never mid-thought or after a slow throat-clearing intro.
+3. **Complete Micro-Arc:** Every clip must stand alone for a viewer who has not seen the full video:
+   - *Setup:* What question or problem is being addressed?
+   - *Core Insight:* Why does it work or happen?
+   - *Resolution:* A crisp concluding takeaway or punchline (`end_time` stops cleanly right after it).
+4. **No Unresolved References:** Do not start clips with dangling pronouns ("That's why he did it...") unless the context is immediately clear within 2 seconds.
+5. **Strict Duration & Non-Overlap:** Every clip MUST be between **25.0 and 58.0 seconds** long (`end_time - start_time`), and all {max_clips} clips must cover completely separate, non-overlapping sections of the transcript.
+6. **Exclude Non-Content:** Skip sponsor reads, channel intros, merch plugs, and "like & subscribe" outros.
+7. **Exact Timestamps:** Base `start_time` and `end_time` strictly on the `(sec: X.X-Y.Y)` markers in the transcript.
 
 Transcript:
 {transcript_text}
@@ -105,16 +134,16 @@ Transcript:
         model=model_name,
         contents=prompt,
         config=types.GenerateContentConfig(
-            response_mime_type="application/json", #
-            response_schema=ClipExtraction, #
-            temperature=0.2, #
+            system_instruction=system_instruction,
+            response_mime_type="application/json",
+            response_schema=ClipExtraction,
+            temperature=temperature
         ),
-    ) #
+    )
 
-    # Handle both parsed object and raw JSON string
     if hasattr(response, "parsed") and response.parsed:
-        return response.parsed #
-    
+        return response.parsed
+
     data = json.loads(response.text)
     return ClipExtraction.model_validate(data)
 
@@ -124,6 +153,7 @@ def mine_with_local_gguf(
     video_title: str,
     config: PipelineConfig,
     max_clips: int = 3,
+    temperature: float = 0.2
 ) -> ClipExtraction:
     """Extract viral clips using local llama-cpp-python with CUDA offload."""
     from llama_cpp import Llama
@@ -153,7 +183,7 @@ Find the top {max_clips} viral shorts (strictly 25-60 seconds long).
 Ensure exact numeric start_time and end_time timestamps based on the transcript.
 
 Transcript:
-{transcript_text[:12000]}
+{transcript_text}
 """
 
     console.print("[info]Inferencing with local model...[/info]")
@@ -169,7 +199,7 @@ Transcript:
             "type": "json_object",
             "schema": schema,
         },
-        temperature=0.2,
+        temperature=temperature,
         max_tokens=1500,
     )
 
@@ -216,6 +246,7 @@ def mine_highlights(
             meta = json.load(f)
             video_title = meta.get("title", video_title)
 
+    # start min, start sec, end min, end sec, text -> formatted_transcript
     formatted_transcript = format_transcript_with_timestamps(transcript_data.get("segments", []))
     provider = override_provider or config.llm.provider
 
@@ -235,6 +266,8 @@ def mine_highlights(
                     api_key=api_key,
                     model_name=config.llm.gemini.model,
                     max_clips=max_clips,
+                    temperature=config.llm.gemini.temperature
+
                 )
             except Exception as e:
                 console.print(f"[warning]Gemini API failed: {e}. Falling back to local GGUF...[/warning]")
@@ -246,6 +279,7 @@ def mine_highlights(
             video_title=video_title,
             config=config,
             max_clips=max_clips,
+            temperature=config.llm.local_gguf.temperature
         )
 
     if not result or not result.clips:

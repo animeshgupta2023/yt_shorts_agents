@@ -286,7 +286,7 @@ def run(
         compute_type=config.whisper.compute_type,
     )
 
-    # Stage 3: Highlight Mining
+    # Stage 3: Highlight Mining (LLM based clip selection)
     clips_path = mine_highlights(
         workspace_dir=workspace_dir,
         config=config,
@@ -313,6 +313,7 @@ def run(
         out_path = workspace_dir / "out" / f"short_{idx:02d}.mp4"
 
         # Stage 4: Reframe
+        # Extract subclip
         extract_raw_clip(
             source_video=ingest_res.raw_video_path,
             output_clip_path=subclip_path,
