@@ -71,17 +71,19 @@ def ingest_video(
         "overwrites": True,
         "quiet": True,
         "no_warnings": True,
-        "extractor_args": {
-            "youtube": {
-                "player_client": cfg.player_clients,
-            }
-        },
         "socket_timeout": 15,
         "retries": 10,
         "fragment_retries": 10,
         "buffersize": 1024 * 1024,
         "concurrent_fragment_downloads": 4,
     }
+
+    if cfg.player_clients:
+        ydl_opts["extractor_args"] = {
+            "youtube": {
+                "player_client": cfg.player_clients,
+            }
+        }
 
     if cfg.cookies_from_browser:
         ydl_opts["cookiesfrombrowser"] = (cfg.cookies_from_browser,)

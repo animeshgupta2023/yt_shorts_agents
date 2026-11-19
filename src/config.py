@@ -49,7 +49,7 @@ class SubtitleConfig(BaseModel):
 class IngestConfig(BaseModel):
     max_height: int = 1080
     cookies_from_browser: str | None = "chrome"
-    player_clients: list[str] = Field(default_factory=lambda: ["tv", "web_safari", "web"])
+    player_clients: list[str] = Field(default_factory=list)
 
 class PipelineConfig(BaseModel):
     project: ProjectConfig = Field(default_factory=ProjectConfig)
