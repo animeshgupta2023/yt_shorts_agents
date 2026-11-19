@@ -124,3 +124,5 @@ def ingest_video(
         audio_wav_path=audio_wav_path,
         metadata_path=metadata_path,
     )
+
+# uv pip install -U "yt-dlp[default]" bgutil-ytdlp-pot-provider && deno upgrade

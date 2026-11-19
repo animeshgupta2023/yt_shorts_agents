@@ -3,7 +3,8 @@ __pycache__/
 *.py[cod]
 .env
 workspace/
-models/*.gguf
+*.pt
 *.mp4
 *.wav
 *.ass
+models/

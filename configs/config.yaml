@@ -32,5 +32,5 @@ subtitles:
 
 ingest:
   max_height: 1080
-  cookies_from_browser: null   # see P1-4; opt-in, not default
-  player_clients: ["tv", "web_safari", "web"]
+  cookies_from_browser: "chrome"
+  player_clients: ["web_safari", "tv", "mweb", "web"]

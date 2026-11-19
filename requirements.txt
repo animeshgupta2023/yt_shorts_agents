@@ -11,5 +11,9 @@ scenedetect[opencv]>=0.6.3
 ultralytics>=8.2.0
 numpy>=1.24.0
 torch>=2.0.0
+torchaudio>=2.0.0
+torchvision>=0.15.0
 llama-cpp-python>=0.2.90
 secretstorage>=3.3.0
+ctranslate2>=4.7.0
+transformers
