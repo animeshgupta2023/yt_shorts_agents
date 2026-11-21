@@ -2,13 +2,61 @@ import gc
 import json
 import re
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Literal, Dict
+from dataclasses import dataclass
 import torch
 from pydantic import BaseModel, Field
 
 from src.config import PipelineConfig
 from src.utils.logger import console
 
+MiningMode = Literal["value", "viral"]
+
+@dataclass(frozen=True)
+class MiningProfile:
+    name: MiningMode
+    min_duration: float
+    max_duration: float
+    system_instruction: str
+    selection_rules: str
+
+MINING_PROFILES: Dict[MiningMode, MiningProfile] = {
+    "value": MiningProfile(
+        name="value",
+        min_duration=25.0,
+        max_duration=58.0,
+        system_instruction=(
+            "You are an expert educational and editorial producer for short-form video (YouTube Shorts, Reels). "
+            "Extract self-contained segments with high signal-to-noise ratio—clips that teach a clear concept, "
+            "break down a framework, or reveal a non-obvious insight without fluff."
+        ),
+        selection_rules="""### Content Quality & Selection Criteria (VALUE MODE):
+1. **High Signal, Zero Fluff:** Prioritize concrete frameworks, step-by-step explanations, root-cause reasoning, or memorable analogies. Reject empty banter, vague platitudes, and meandering stories without a clear takeaway.
+2. **Value-Driven Hook (0–5s):** `start_time` MUST begin on a sentence that immediately frames a specific problem, counterintuitive truth, or clear promise—never mid-thought or after a slow throat-clearing intro.
+3. **Complete Micro-Arc:** Every clip must stand alone for a cold viewer:
+   - *Setup:* What question or problem is being addressed?
+   - *Core Insight:* Why does it work or happen?
+   - *Resolution:* A crisp concluding takeaway (`end_time` stops cleanly right after it).
+4. **No Unresolved References:** Do not start clips with dangling pronouns ("That's why he did it...") unless context is clear within 2 seconds.
+5. **Banner Text:** Write a 4–7 word top-screen overlay summarizing the core lesson (no clickbait).""",
+    ),
+    "viral": MiningProfile(
+        name="viral",
+        min_duration=15.0,
+        max_duration=60.0,
+        system_instruction=(
+            "You are a viral short-form editor for high-retention vlogs, storytelling, and entertainment Shorts. "
+            "Extract fast-paced, emotionally gripping moments—unexpected twists, high-stakes tension, hilarious "
+            "banter, raw vulnerability, or satisfying payoffs that trigger comments and rewatches."
+        ),
+        selection_rules="""### Content Quality & Selection Criteria (VIRAL VLOG MODE):
+1. **Scroll-Stopping Energy (0–3s):** `start_time` MUST open on peak curiosity, conflict, humor, or an unexpected statement—cut out all walking/setup filler before the tension starts.
+2. **Tension & Payoff Arc:** Every clip needs rising stakes, an escalating story, or a comedic build-up that resolves in a sharp punchline, reaction, or twist (`end_time` cuts immediately at the peak reaction—do not linger).
+3. **Relatability & Shareability:** Prioritize moments viewers send to a friend ("this is so true" or "watch till the end"), strong opinions, or behind-the-scenes mishaps.
+4. **Use Replay Peaks:** If Viewer Replay Peaks (Heatmap) are provided, treat them as strong indicators of moments viewers rewatched.
+5. **Banner Text:** Write a punchy 4–7 word top-screen curiosity hook that amplifies the tension without spoiling the ending.""",
+    ),
+}
 
 class ClipCandidate(BaseModel):
     topic: str = Field(..., description="Short 1-3 word subject tag")
@@ -86,14 +134,44 @@ def snap_to_word_boundaries(clips: List[ClipCandidate], words_path: Path) -> Lis
         )
     return snapped_clips
 
+def _build_prompt(
+    profile: MiningProfile,
+    transcript_text: str,
+    video_title: str,
+    max_clips: int,
+    chapters_summary: str = "",
+    heatmap_summary: str = "",
+) -> str:
+    context_blocks = [f"Video Title: {video_title}"]
+    if chapters_summary:
+        context_blocks.append(f"Video Chapters:\n{chapters_summary}")
+    if heatmap_summary:
+        context_blocks.append(f"Viewer Replay Peaks (Heatmap):\n{heatmap_summary}")
+    metadata_context = "\n\n".join(context_blocks)
+
+    return f"""Analyze the timestamped transcript below and extract the top {max_clips} distinct, standalone Shorts.
+
+{metadata_context}
+
+{profile.selection_rules}
+6. **Strict Duration & Non-Overlap:** Every clip MUST be between **{profile.min_duration:.0f} and {profile.max_duration:.0f} seconds** long (`end_time - start_time`), and all {max_clips} clips must cover completely separate, non-overlapping sections of the transcript.
+7. **Exclude Non-Content:** Skip sponsor reads, channel intros, merch plugs, and "like & subscribe" outros.
+8. **Exact Timestamps:** Base `start_time` and `end_time` strictly on the `(sec: X.X-Y.Y)` markers in the transcript.
+
+Transcript:
+{transcript_text}
+"""
 
 def mine_with_gemini(
     transcript_text: str,
     video_title: str,
     api_key: str,
+    profile: MiningProfile,
     model_name: str = "gemini-4-hydrogen",
     max_clips: int = 3,
-    temperature: float = 0.2
+    temperature: float = 0.2,
+    chapters_summary: str = "",
+    heatmap_summary: str = "",
 ) -> ClipExtraction:
     """Extract high-value, standalone Shorts using structured Pydantic output."""
     from google import genai
@@ -101,40 +179,21 @@ def mine_with_gemini(
 
     client = genai.Client(api_key=api_key)
 
-    system_instruction = (
-        "You are an expert educational and editorial producer for short-form video (YouTube Shorts, Reels). "
-        "Your job is to extract self-contained segments with high signal-to-noise ratio—clips that teach a "
-        "clear concept, break down a framework, or reveal a non-obvious insight without fluff."
+    prompt = _build_prompt(
+        profile=profile,
+        transcript_text=transcript_text,
+        video_title=video_title,
+        max_clips=max_clips,
+        chapters_summary=chapters_summary,
+        heatmap_summary=heatmap_summary,
     )
 
-    context_blocks = [f"Video Title: {video_title}"]
-    metadata_context = "\n\n".join(context_blocks)
-
-    prompt = f"""Analyze the timestamped transcript below and extract the top {max_clips} distinct, high-value standalone Shorts.
-
-{metadata_context}
-
-### Content Quality & Selection Criteria:
-1. **High Signal, Zero Fluff:** Prioritize segments containing concrete frameworks, step-by-step explanations, root-cause reasoning, or memorable analogies. Reject empty banter, vague platitudes, and meandering stories without a clear point.
-2. **Value-Driven Hook (0-5s):** `start_time` MUST begin on a sentence that immediately frames a specific problem, counterintuitive truth, or clear promise—never mid-thought or after a slow throat-clearing intro.
-3. **Complete Micro-Arc:** Every clip must stand alone for a viewer who has not seen the full video:
-   - *Setup:* What question or problem is being addressed?
-   - *Core Insight:* Why does it work or happen?
-   - *Resolution:* A crisp concluding takeaway or punchline (`end_time` stops cleanly right after it).
-4. **No Unresolved References:** Do not start clips with dangling pronouns ("That's why he did it...") unless the context is immediately clear within 2 seconds.
-5. **Strict Duration & Non-Overlap:** Every clip MUST be between **25.0 and 58.0 seconds** long (`end_time - start_time`), and all {max_clips} clips must cover completely separate, non-overlapping sections of the transcript.
-6. **Exclude Non-Content:** Skip sponsor reads, channel intros, merch plugs, and "like & subscribe" outros.
-7. **Exact Timestamps:** Base `start_time` and `end_time` strictly on the `(sec: X.X-Y.Y)` markers in the transcript.
-
-Transcript:
-{transcript_text}
-"""
 
     response = client.models.generate_content(
         model=model_name,
         contents=prompt,
         config=types.GenerateContentConfig(
-            system_instruction=system_instruction,
+            system_instruction=profile.system_instruction,
             response_mime_type="application/json",
             response_schema=ClipExtraction,
             temperature=temperature
@@ -227,6 +286,7 @@ def mine_highlights(
     config: PipelineConfig,
     max_clips: int = 3,
     override_provider: Optional[str] = None,
+    mode: MiningMode = "value",
 ) -> Path:
     """Orchestrates candidate mining, falls back if needed, snaps timestamps, and saves clips.json."""
     transcript_path = workspace_dir / "transcript.json"
@@ -247,6 +307,7 @@ def mine_highlights(
             video_title = meta.get("title", video_title)
 
     # start min, start sec, end min, end sec, text -> formatted_transcript
+    profile = MINING_PROFILES[mode]
     formatted_transcript = format_transcript_with_timestamps(transcript_data.get("segments", []))
     provider = override_provider or config.llm.provider
 
@@ -266,8 +327,8 @@ def mine_highlights(
                     api_key=api_key,
                     model_name=config.llm.gemini.model,
                     max_clips=max_clips,
-                    temperature=config.llm.gemini.temperature
-
+                    temperature=config.llm.gemini.temperature,
+                    profile=profile,
                 )
             except Exception as e:
                 console.print(f"[warning]Gemini API failed: {e}. Falling back to local GGUF...[/warning]")
@@ -303,3 +364,12 @@ def mine_highlights(
 
     console.print(f"[success]Mined {len(output_payload['clips'])} viral clips successfully![/success]")
     return clips_path
+
+
+
+# different prompts for different types of content (educational, entertainment, etc.) could be implemented here in the future
+# for vlogs or for the virality
+# amazing thumbnails, titles, and descriptions could be generated in a separate module using similar LLM techniques
+# some vizaulization of the clips with timestamps and scores could be added for better UX
+# from podcasts we could ask for the most importants clips or the lessons that could be put into a 10 or 20 minutes video
+# vizaulizations that could be generated with the help of gemini or claude using html, css, js or svg could be added to the clips for better engagement

@@ -5,6 +5,7 @@ project:
 llm:
   # Primary: "gemini" | Fallback/Local: "local_gguf"
   provider: "gemini"
+  default_mode: "value"
   gemini:
     model: "gemini-4-hydrogen" # High TPM ceiling on free tier; use gemini-3.8-flash for large batches
     temperature: 0.2

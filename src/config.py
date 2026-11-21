@@ -21,6 +21,7 @@ class LocalGGUFConfig(BaseModel):
 
 class LLMConfig(BaseModel):
     provider: Literal["gemini", "local_gguf"] = "gemini"
+    default_mode: Literal["value", "viral"] = "value"
     gemini: GeminiConfig = Field(default_factory=GeminiConfig)
     local_gguf: LocalGGUFConfig = Field(default_factory=LocalGGUFConfig)
 

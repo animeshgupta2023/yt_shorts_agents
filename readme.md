@@ -12,7 +12,7 @@ YouTube URL
   -> Download video and metadata
   -> Extract 16 kHz mono WAV audio
   -> Transcribe with word timestamps
-  -> Mine 25-60 second highlight candidates
+  -> Mine standalone highlight candidates
   -> Detect scene cuts and track the largest person
   -> Generate karaoke-style ASS subtitles
   -> Crop to 9:16 and render MP4 Shorts
@@ -28,6 +28,7 @@ The pipeline can be run as one command or as separate stages.
 - A CUDA-capable PyTorch installation is recommended
 - Gemini API access, or a local GGUF model supported by `llama-cpp-python`
 - H.264/NVENC support for GPU rendering; CPU `libx264` rendering is available
+- Deno is recommended for yt-dlp JavaScript challenge solving
 
 The project lists its Python dependencies in
 [`requirements.txt`](requirements.txt). FFmpeg is an external dependency.
@@ -79,7 +80,8 @@ Generate up to two Shorts from a YouTube video:
 python src/cli.py run "https://www.youtube.com/watch?v=VIDEO_ID" \
   --max-shorts 2 \
   --provider gemini \
-  --whisper-size small
+  --whisper-size small \
+  --mode viral
 ```
 
 Each candidate is processed sequentially. The final paths are printed in a
@@ -92,6 +94,7 @@ CLI options for `run`:
 | `--max-shorts` | Maximum number of mined candidates to render. Default: `2`. |
 | `--provider` | Override mining provider: `gemini` or `local_gguf`. |
 | `--whisper-size` | Override the configured Whisper model size. |
+| `--mode` | Mining profile: `value` or `viral`. Default: `value`. |
 
 If Gemini has no API key or the API request fails, mining attempts to fall back
 to the configured local GGUF model. That fallback requires a valid
@@ -119,10 +122,20 @@ python src/cli.py ingest "https://www.youtube.com/watch?v=VIDEO_ID"
 Downloads the video and metadata with `yt-dlp`, then uses FFmpeg to create
 `audio.wav` as 16 kHz, mono, 16-bit PCM.
 
+The first download attempt uses yt-dlp's clean default format selection. If it
+fails, the CLI retries once with browser cookies when
+`ingest.cookies_from_browser` is configured. Downloads prefer H.264/AAC formats
+up to `ingest.max_height`, with a best-available fallback.
+
 Browser cookies can be enabled in [`configs/config.yaml`](configs/config.yaml)
 by setting `ingest.cookies_from_browser` to `chrome`, `firefox`, `edge`, or
 another browser supported by `yt-dlp`. Keep this configuration local if it
 contains authentication preferences.
+
+Deno is detected automatically from `~/.deno/bin` when present. It helps
+yt-dlp solve JavaScript-based YouTube player challenges. Existing raw video,
+WAV, and metadata artifacts are reused unless `yt-dlp` is forced to download
+again from another entry point in the future.
 
 Generated files:
 
@@ -160,6 +173,14 @@ python src/cli.py mine VIDEO_ID \
 The miner asks Gemini or a local GGUF model for structured clip candidates,
 snaps start and end times to aligned spoken words, sorts the candidates by
 score, and writes `clips.json`.
+
+Use `--mode value` or `--mode viral` with the end-to-end `run` command.
+`value` is for educational, podcast, or explanatory material and targets
+25-58 second clips with a clear setup, insight, and takeaway. `viral` is for
+vlogs and entertainment and targets 15-60 second clips with strong hooks,
+tension, and payoffs. The standalone `mine` command currently uses the `value`
+profile. Chapter and replay-heatmap metadata is included in the prompt when
+available.
 
 Candidate mining requires prior `transcribe` output. The CLI prints a preview
 table with each score, timestamp range, duration, title, and hook.
@@ -240,6 +261,7 @@ project:
 
 llm:
   provider: "gemini" # gemini | local_gguf
+  default_mode: "value" # value | viral
   gemini:
     model: "gemini-4-hydrogen"
     temperature: 0.2
@@ -256,7 +278,7 @@ whisper:
 ingest:
   max_height: 1080
   cookies_from_browser: "chrome"
-  player_clients: ["tv", "web_safari", "web"]
+  player_clients: ["web_safari", "tv", "mweb", "web"]
 
 reframe:
   target_aspect_ratio: [9, 16]
@@ -279,9 +301,11 @@ The YAML keys above are recognized by [`src/config.py`](src/config.py).
 However, `reframe` and `subtitles` values are not yet passed from
 `PipelineConfig` into every stage: reframing currently uses module defaults,
 and subtitle generation reads CLI/module defaults rather than the
-`subtitles` configuration section. The other main settings, including workspace
-paths, ingest options, Whisper settings, and LLM providers, are consumed by
-the CLI pipeline.
+`subtitles` configuration section. `llm.default_mode` is recognized but is
+currently not the source for CLI mode defaults, and `ingest.player_clients`
+is not consumed by the ingest module. The other main settings, including
+workspace paths, ingest height/cookie settings, Whisper settings, and LLM
+providers, are consumed by the CLI pipeline.
 
 ## Generated workspace layout
 
@@ -329,6 +353,10 @@ be committed unless they are intentionally managed.
   smoothing are currently passed as hard-coded/module defaults.
 - Subtitle font, font size, word grouping, and safe margin are partially
   hard-coded; CLI currently exposes only `--words-per-group`.
+- `llm.default_mode` is recognized but the standalone `mine` command and
+  `run --mode` option do not currently read it consistently.
+- `ingest.player_clients` is recognized but the ingest module does not yet
+  pass it to yt-dlp.
 - The `run` command does not expose a cookies-from-browser argument.
 - Browser cookies are configured in YAML for the ingestion module, not through
   a CLI flag.

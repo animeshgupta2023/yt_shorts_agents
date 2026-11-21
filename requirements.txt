@@ -17,3 +17,4 @@ llama-cpp-python>=0.2.90
 secretstorage>=3.3.0
 ctranslate2>=4.7.0
 transformers
+yt-dlp-ejs

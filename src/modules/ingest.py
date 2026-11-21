@@ -1,12 +1,20 @@
 import json
+import os
 import re
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from pydantic import BaseModel
 import yt_dlp
+
 from src.config import IngestConfig
 from src.utils.logger import console
 from src.utils.shell import run_command
+
+# Ensure Deno is discoverable for yt-dlp-ejs challenge solving
+_deno_bin = str(Path.home() / ".deno" / "bin")
+if _deno_bin not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{_deno_bin}:{os.environ.get('PATH', '')}"
+
 
 class IngestResult(BaseModel):
     video_id: str
@@ -20,33 +28,36 @@ class IngestResult(BaseModel):
 
 def extract_video_id(url: str) -> str:
     """Extract standard 11-character YouTube video ID."""
-    pattern = r"(?:v=|\/)([0-9A-Za-z_-]{11}).*"
-    match = re.search(pattern, url)
+    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11}).*", url)
     if not match:
         raise ValueError(f"Could not parse valid YouTube video ID from: {url}")
     return match.group(1)
 
-# we get the .wav file for whisper model to work properly(as it works on 16KHz mono audio)
+
 def demux_audio(raw_video_path: Path, output_wav_path: Path) -> Path:
-    """Demux video into 16kHz mono PCM 16-bit WAV for Whisper acoustic models."""
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-i", raw_video_path,
-        "-vn",
-        "-acodec", "pcm_s16le",
-        "-ar", "16000",
-        "-ac", "1",
-        output_wav_path,
-    ]
-    run_command(cmd, desc="Demuxing 16kHz mono audio")
+    """Demux video into 16kHz mono PCM 16-bit WAV for Whisper."""
+    run_command(
+        [
+            "ffmpeg", "-y",
+            "-i", raw_video_path,
+            "-vn",
+            "-acodec", "pcm_s16le",
+            "-ar", "16000",
+            "-ac", "1",
+            output_wav_path,
+        ],
+        desc="Demuxing 16kHz mono audio",
+    )
     return output_wav_path
 
 
 def ingest_video(
-    url: str, base_workspace: Path, ingest_config: IngestConfig | None = None
+    url: str,
+    base_workspace: Path,
+    ingest_config: Optional[IngestConfig] = None,
+    force_download: bool = False,
 ) -> IngestResult:
-    """Download video and metadata, then demux normalized audio."""
+    """Download video and metadata using yt-dlp defaults (with cookie fallback), then demux audio."""
     cfg = ingest_config or IngestConfig()
     h = cfg.max_height
     video_id = extract_video_id(url)
@@ -57,45 +68,58 @@ def ingest_video(
     audio_wav_path = target_dir / "audio.wav"
     metadata_path = target_dir / "metadata.json"
 
-    # Configure yt-dlp: cap at 1080p, prefer standard H.264 / AAC MP4 container
-    # Prioritize H.264 (avc1) video up to 1080p, fall back to any format if unavailable
-    ydl_opts: Dict[str, Any] = {
-        "format": (
-            f"bestvideo[height<={h}][vcodec^=avc1]+bestaudio[ext=m4a]/"
-            f"bestvideo[height<={h}][ext=mp4]+bestaudio[ext=m4a]/"
-            f"bestvideo[height<={h}]+bestaudio/"
-            f"best[height<={h}]/best"
-        ),
+    # Skip download if valid artifacts already exist
+    if (
+        not force_download
+        and raw_video_path.exists() and raw_video_path.stat().st_size > 0
+        and audio_wav_path.exists() and audio_wav_path.stat().st_size > 0
+        and metadata_path.exists()
+    ):
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            meta = json.load(f)
+        console.print(f"[info]Using cached ingest artifacts for {video_id}[/info]")
+        return IngestResult(
+            video_id=video_id,
+            title=meta.get("title", ""),
+            duration=float(meta.get("duration", 0)),
+            workspace_dir=target_dir,
+            raw_video_path=raw_video_path,
+            audio_wav_path=audio_wav_path,
+            metadata_path=metadata_path,
+        )
+
+    # Single unified format selector: prefer H.264+AAC up to max_height, else best available
+    base_opts: Dict[str, Any] = {
+        "format": f"bv*[height<={h}][vcodec^=avc1]+ba[ext=m4a]/bv*[height<={h}]+ba/b[height<={h}]/b",
         "merge_output_format": "mp4",
         "outtmpl": str(raw_video_path),
         "overwrites": True,
         "quiet": True,
         "no_warnings": True,
-        "socket_timeout": 15,
+        "remote_components": ["ejs:github"],
         "retries": 10,
         "fragment_retries": 10,
-        "buffersize": 1024 * 1024,
         "concurrent_fragment_downloads": 4,
     }
 
-    if cfg.player_clients:
-        ydl_opts["extractor_args"] = {
-            "youtube": {
-                "player_client": cfg.player_clients,
-            }
-        }
-
-    if cfg.cookies_from_browser:
-        ydl_opts["cookiesfrombrowser"] = (cfg.cookies_from_browser,)
-
     console.print(f"[stage]Ingesting YouTube Video:[/stage] [info]{video_id}[/info]")
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(url, download=True)
-        if info_dict is None:
-            raise RuntimeError(f"yt-dlp failed to fetch info for {url}")
+    # Pass 1: Clean yt-dlp defaults (no cookies, no manual player_client overrides)
+    try:
+        with yt_dlp.YoutubeDL(base_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+    except yt_dlp.utils.DownloadError as err:
+        # Pass 2: Retry with browser cookies only if Pass 1 fails (age-gate / IP check)
+        if not cfg.cookies_from_browser:
+            raise RuntimeError(f"yt-dlp failed for {url}: {err}") from err
+        console.print(f"[warning]Default ingest failed ({err}). Retrying with browser cookies...[/warning]")
+        auth_opts = {**base_opts, "cookiesfrombrowser": (cfg.cookies_from_browser,)}
+        with yt_dlp.YoutubeDL(auth_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
 
-    # Save relevant metadata
+    if info_dict is None:
+        raise RuntimeError(f"yt-dlp failed to fetch info for {url}")
+
     metadata = {
         "id": video_id,
         "title": info_dict.get("title", ""),
@@ -111,7 +135,6 @@ def ingest_video(
 
     console.print(f"[success]Video downloaded:[/success] {metadata['title']} ({metadata['duration']}s)")
 
-    # Extract clean audio track
     demux_audio(raw_video_path, audio_wav_path)
     console.print(f"[success]Audio extracted:[/success] {audio_wav_path.name}")
 
@@ -124,5 +147,3 @@ def ingest_video(
         audio_wav_path=audio_wav_path,
         metadata_path=metadata_path,
     )
-
-# uv pip install -U "yt-dlp[default]" bgutil-ytdlp-pot-provider && deno upgrade

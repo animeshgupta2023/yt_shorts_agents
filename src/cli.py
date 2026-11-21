@@ -267,6 +267,7 @@ def run(
     max_shorts: int = typer.Option(2, help="Number of viral Shorts to generate"),
     provider: Optional[str] = typer.Option(None, help="LLM provider: 'gemini' or 'local_gguf'"),
     whisper_size: Optional[str] = typer.Option(None, help="Whisper model size"),
+    mode: str = typer.Option("value", "--mode", help="Mining strategy: 'value' (podcasts/edu) or 'viral' (vlogs)")
 ):
     """Full End-to-End Pipeline: Ingest -> Transcribe -> Mine -> Reframe -> Subtitle -> Render."""
     config = load_config()
@@ -292,6 +293,7 @@ def run(
         config=config,
         max_clips=max_shorts,
         override_provider=provider,
+        mode=mode
     )
 
     with open(clips_path, "r", encoding="utf-8") as f:
